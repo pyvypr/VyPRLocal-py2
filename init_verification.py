@@ -35,7 +35,7 @@ class MonitoringLog(object):
         if not (os.path.isdir("vypr_monitoring_logs")):
             os.mkdir("vypr_monitoring_logs")
         self.log_file_name = "vypr_monitoring_logs/%s" \
-                             % str(datetime.datetime.now()). \
+                             % str(datetime.datetime.utcnow()). \
                                  replace(" ", "_").replace(":", "_").replace(".", "_").replace("-", "_")
         self.handle = None
 
@@ -48,7 +48,7 @@ class MonitoringLog(object):
 
     def log(self, message):
         if self.handle:
-            message = "[VyPR monitoring - %s] %s" % (str(datetime.datetime.now()), message)
+            message = "[VyPR monitoring - %s] %s" % (str(datetime.datetime.utcnow()), message)
             self.handle.write("%s\n" % message)
             # flush the contents of the file to disk - this way we get a log even with an unhandled exception
             self.handle.flush()
@@ -333,7 +333,7 @@ def consumption_thread_function(verification_obj):
 
                             old_instantiation_time = list(monitor._monitor_instantiation_time)
                             updated_instantiation_time = tuple(
-                                old_instantiation_time[:bind_variable_index] + [datetime.datetime.now()])
+                                old_instantiation_time[:bind_variable_index] + [datetime.datetime.utcnow()])
                             new_monitor = formula_tree.new_monitor(formula_structure.get_formula_instance())
                             new_monitors.append(new_monitor)
 
@@ -370,7 +370,7 @@ def consumption_thread_function(verification_obj):
                         vypr_output("    Updating existing monitor timestamp sequence")
                         # extend the monitor's timestamp sequence
                         tmp_sequence = list(monitor._monitor_instantiation_time)
-                        tmp_sequence.append(datetime.datetime.now())
+                        tmp_sequence.append(datetime.datetime.utcnow())
                         monitor._monitor_instantiation_time = tuple(tmp_sequence)
 
                 # add the new monitors
@@ -519,6 +519,29 @@ class Verification(object):
         VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True
         PROJECT_ROOT = inst_configuration.get("project_root") if inst_configuration.get("project_root") else ""
 
+        # check if there's an NTP server given that we should use for time
+        self.ntp_server = inst_configuration.get("ntp_server")
+        if self.ntp_server:
+            # set two timestamps - the local time, and the ntp server time, from the same instant
+            import ntplib
+            client = ntplib.NTPClient()
+            try:
+                response = client.request(self.ntp_server)
+                # set the local start time
+                self.local_start_time = datetime.datetime.utcfromtimestamp(response.orig_time)
+                # compute the delay due to network latency to reach the ntp server
+                adjustment = (response.dest_time - response.orig_time)/2
+                # set the ntp start time by subtracting the adjustment from the time given by the ntp server
+                # this works because 'adjustment' is approximately the time elapsed
+                # between the first time we measure local time and when the ntp server measures its own time
+                # so by subtracting this difference we adjust the ntp server time to the same instant
+                # as the local time
+                self.ntp_start_time = datetime.datetime.utcfromtimestamp(response.tx_time - adjustment)
+            except:
+                vypr_output("Couldn't set time based on NTP server '%s'." % self.ntp_server)
+                print("Couldn't set time based on NTP server '%s'." % self.ntp_server)
+                exit()
+
         # try to connect to the verdict server before we set anything up
         try:
             attempt = requests.get(VERDICT_SERVER_URL)
@@ -533,7 +556,7 @@ class Verification(object):
         vypr_output("Initialising VyPR alongside service.")
 
         # we count the transaction start time as the time when VyPR starts up
-        self.transaction_start_time = datetime.datetime.now()
+        self.transaction_start_time = datetime.datetime.utcnow()
 
         # read configuration file
         inst_configuration = read_configuration("vypr.config")
@@ -591,6 +614,25 @@ class Verification(object):
         self.consumption_thread.start()
 
         vypr_output("VyPR monitoring initialisation finished.")
+
+    def get_time(self):
+        """
+        Returns either the machine local time, or the NTP time (using the initial NTP time
+        obtained when VyPR started up, so we don't query an NTP server everytime we want to measure time).
+        The result is in UTC.
+        :return: datetime.datetime object
+        """
+        if self.ntp_server:
+            vypr_output("Getting time based on NTP.")
+            current_local_time = datetime.datetime.utcnow()
+            # compute the time elapsed since the start
+            difference = current_local_time - self.local_start_time
+            # add that time to the ntp time obtained at the start
+            current_ntp_time = self.ntp_start_time + difference
+            return current_ntp_time
+        else:
+            vypr_output("Getting time based on local machine.")
+            return datetime.datetime.utcnow()
 
     def send_event(self, event_description):
         if not (self.initialisation_failure):
