@@ -9,10 +9,7 @@ import threading
 import traceback
 
 # this differs between versions...
-try:
-    from queue import Queue
-except:
-    import Queue
+from Queue import Queue
 import requests
 from VyPR.SCFG.construction import CFGEdge, CFGVertex
 from VyPR.QueryBuilding import *
