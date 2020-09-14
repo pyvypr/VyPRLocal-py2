@@ -14,23 +14,148 @@ import os
 import json
 import base64
 import datetime
+import pprint
 
 # for now, we remove the final occurrence of VyPR from the first path to look in for modules
 rindex = sys.path[0].rfind("/VyPR")
 sys.path[0] = sys.path[0][:rindex] + sys.path[0][rindex + len("/VyPR"):]
 
-# get the formula building functions before we evaluate the configuration code
 from VyPR.QueryBuilding import *
 from VyPR.SCFG.construction import *
+from VyPR.monitor_synthesis.formula_tree import *
+import VyPR.config
 
-VERDICT_SERVER_URL = None
-VERBOSE = False
-EXPLANATION = False
-DRAW_GRAPHS = False
-BYTECODE_EXTENSION = ".pyc"
-vypr_module = "."
-VERIFICATION_INSTRUCTION = "verification.send_event"
-LOGS_TO_STDOUT = False
+# from Marta's code
+atoms_list = []
+
+StaticState.__repr__ = \
+    lambda object: """<span class="tooltip">Bind each event satisfying changes(%s) to the variable %s.</span>
+    %s = changes(%s)""" %\
+                   (object._name_changed, object._bind_variable_name, object._bind_variable_name, object._name_changed)
+
+StaticTransition.__repr__ = \
+    lambda object: """<span class="tooltip">Bind each event satisfying calls(%s) to the variable %s.</span>
+    %s = calls(%s)""" %\
+                   (object._operates_on, object._bind_variable_name, object._bind_variable_name, object._operates_on)
+
+StateValueInInterval.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s(%s)</span>._in(%s)
+        </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._interval)
+
+StateValueInOpenInterval.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s(%s)</span>._in(%s)
+        </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._interval)
+
+StateValueEqualTo.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s(%s)</span>.equals(%s)
+        </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._value)
+
+StateValueTypeEqualTo.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s(%s)</span>.type().equals(%s)
+        </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._value)
+
+StateValueEqualToMixed.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s(%s)</span>.equals(
+        <span class="subatom" subatom-index="1">%s(%s)</span>)
+        </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._lhs_name, Atom._rhs, Atom._rhs_name)
+
+StateValueLengthInInterval.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s(%s)</span>.length()._in(%s)
+        </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._interval)
+
+TransitionDurationInInterval.__repr__=\
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <div class="tooltip">Constraint the duration of %s.</div>
+        <span class="subatom" subatom-index="0">%s</span>.duration()._in(%s)
+        </span>""" % (atoms_list.index(Atom), Atom._transition, Atom._transition, Atom._interval)
+
+TransitionDurationLessThanTransitionDurationMixed.__repr__=\
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s</span>.duration() <
+        <span class="subatom" subatom-index="1">%s</span>.duration()
+        </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._rhs)
+
+TransitionDurationLessThanStateValueMixed.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s</span>.duration() <
+        <span class="subatom" subatom-index="1">%s(%s) </span>
+        </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._rhs, Atom._rhs_name)
+
+TransitionDurationLessThanStateValueLengthMixed.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">
+        <span class="subatom" subatom-index="0">%s</span>.duration() <
+        <span class="subatom" subatom-index="1">%s(%s)</span>.length()
+        </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._rhs, Atom._rhs_name)
+
+TimeBetweenInInterval.__repr__ = \
+        lambda Atom: """<span class="atom" atom-index="%i">timeBetween(
+            <div class="tooltip">Constrain the time taken to reach %s from %s.</div>
+            <span class="subatom" subatom-index="0">%s</span>,
+            <span class="subatom" subatom-index="1">%s</span>)._in(%s)
+            </span> """ % (atoms_list.index(Atom), Atom._rhs, Atom._lhs, Atom._lhs, Atom._rhs, Atom._interval)
+
+TimeBetweenInOpenInterval.__repr__ = \
+    lambda Atom: """<span class="atom" atom-index="%i">timeBetween(
+        <div class="tooltip">Constrain the time taken to reach %s from %s.</div>
+        <span class="subatom" subatom-index="0">%s</span>,
+        <span class="subatom" subatom-index="1">%s</span>)._in(%s)
+        </span> """ % (atoms_list.index(Atom), Atom._rhs, Atom._lhs, Atom._lhs, Atom._rhs, str(Atom._interval))
+
+LogicalAnd.__repr__= \
+    lambda object: ('land(%s' % (object.operands[0])) + (', %s'%str for str in object.operands[1:]) + ')'
+
+LogicalOr.__repr__= \
+    lambda object: ('lor(%s' % (object.operands[0])) + (', %s'%str for str in object.operands[1:]) + ')'
+
+LogicalNot.__repr__ = \
+    lambda object: 'lnot(%s)' % object.operand
+
+
+def VIS_SCFG_SET_TO_IDS(points):
+    """
+    Given a list of SCFG vertices or edges, get
+        1) ids of vertices
+        2) ids of vertices either side of edges
+    :param points:
+    :return: A list of integer addresses.
+    """
+    ids = []
+    for point in points:
+        if type(point) is CFGVertex:
+            ids.append(id(point))
+        else:
+            ids += [id(point._source_state), id(point._target_state)]
+    return ids
+
+
+def SEND_VIS_EVENT(action, data):
+    """
+    Send a new visualisation event to the server.
+    :param action:
+    :param data:
+    :return: True or False based on success of the http request.
+    """
+    try:
+        print("Sending visualisation event...")
+        requests.post(
+            os.path.join(VyPR.config.VERDICT_SERVER_URL, "event_stream/add/instrumentation/"),
+            data = json.dumps({
+                "action" : action,
+                "data" : json.dumps(data),
+                "time_added" : datetime.datetime.now().isoformat()
+            })
+        )
+        print("Visualisation event sent!")
+        return True
+    except:
+        traceback.print_exc()
+        return False
 
 
 class InstrumentationLog(object):
@@ -72,12 +197,13 @@ Bytecode writing functions - these depend on the Python version.
 
 def compile_bytecode_and_write(asts, file_name_without_extension):
     """Compile ASTs to bytecode then write to file.  The method we use depends on the Python version."""
+
     backup_file_name = "%s.py.inst" % file_name_without_extension
 
     instrumented_code = compile(asts, backup_file_name, "exec")
 
     # append an underscore to indicate that it's instrumented - removed for now
-    instrumented_file_name = "%s%s" % (file_name_without_extension, BYTECODE_EXTENSION)
+    instrumented_file_name = "%s%s" % (file_name_without_extension, VyPR.config.BYTECODE_EXTENSION)
 
     logger.log("Writing instrumented bytecode to %s." % instrumented_file_name)
 
@@ -211,6 +337,7 @@ def compute_binding_space(quantifier_sequence, scfg, reachability_map, current_b
         binding_space = []
         # recurse with (possibly partial) bindings
         for element in qd:
+            SEND_VIS_EVENT("new_binding", {"vertex_id" : id(element)})
             binding_space += compute_binding_space(quantifier_sequence, scfg, reachability_map, [element])
 
         logger.log("Computed whole binding space")
@@ -243,10 +370,27 @@ def compute_binding_space(quantifier_sequence, scfg, reachability_map, current_b
             # compute the bindings from this new qd
             binding_space = []
             for element in qd:
+                child_id = id(element._target_state) if type(element) is CFGEdge else id(element)
+                SEND_VIS_EVENT(
+                    "extend_binding",
+                    {
+                        "parent_vertex_id" : id(current_binding[-1]),
+                        "child_vertex_id": child_id
+                    }
+                )
                 binding_space += compute_binding_space(quantifier_sequence, scfg, reachability_map,
                                                        current_binding + [element])
             return binding_space
     else:
+        SEND_VIS_EVENT("complete_binding",
+                       {
+                           "vertex_ids": map(
+                               lambda entry : id(entry._target_state)
+                                if type(entry) is CFGEdge else id(entry),
+                               current_binding
+                           )
+                       }
+        )
         # we now have a complete binding - return it
         return [current_binding]
 
@@ -298,25 +442,30 @@ def get_function_from_qualifier(qualifier_chain):
     return function_qualifier
 
 
-def write_scfg_to_file(scfg, file_name):
+def write_scfg_to_file(scfg, file_name, points_of_interest=[]):
     """
     Given an scfg and a file name, write the scfg in dot format to the file.
     """
-    if DRAW_GRAPHS:
+    # if points of interest are given, convert edges to pairs of states
+    if len(points_of_interest) > 0:
+        for point in points_of_interest:
+            if type(point) is CFGEdge:
+                points_of_interest += [point._target_state, point._source_state]
+    print("writing scfg, with highlighting for")
+    print(points_of_interest)
+    if VyPR.config.DRAW_GRAPHS:
         from graphviz import Digraph
         graph = Digraph()
         graph.attr("graph", splines="true", fontsize="10")
         shape = "rectangle"
         for vertex in scfg.vertices:
-            graph.node(str(id(vertex)), str(vertex._name_changed), shape=shape)
+            colour = "black" if vertex not in points_of_interest else "red"
+            graph.node(str(id(vertex)), ", ".join(vertex._name_changed), shape=shape, color=colour, fontname="monaco")
             for edge in vertex.edges:
                 graph.edge(
                     str(id(vertex)),
                     str(id(edge._target_state)),
-                    "%s - %s - path length = %s" % \
-                    (str(edge._operates_on),
-                     edge._condition,
-                     str(edge._target_state._path_length))
+                    ""
                 )
         graph.render(file_name)
         logger.log("Writing SCFG to file '%s'." % file_name)
@@ -326,16 +475,14 @@ def post_to_verdict_server(url, data):
     """
     Given a url (extension of the base URL set by configuration) and some data, send a post request to the verdict server.
     """
-    global VERDICT_SERVER_URL
-    response = requests.post(os.path.join(VERDICT_SERVER_URL, url), data).text
+    response = requests.post(os.path.join(VyPR.config.VERDICT_SERVER_URL, url), data).text
     return response
 
 
 def is_verdict_server_reachable():
     """Try to query the index page of the verdict server."""
-    global VERDICT_SERVER_URL
     try:
-        requests.get(VERDICT_SERVER_URL)
+        requests.get(VyPR.config.VERDICT_SERVER_URL)
         return True
     except:
         return False
@@ -393,21 +540,29 @@ def instrument_point_state(state, name, point, binding_space_indices,
     if measure_attribute == "length":
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = len(%s); " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = vypr.get_time();" % state_variable_alias
+        time_attained_instrument = "time_attained_%s = vypr.get_time();" % \
+                                   (state_variable_alias)
+        time_attained_variable = "time_attained_%s" % state_variable_alias
     elif measure_attribute == "type":
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = type(%s).__name__; " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = vypr.get_time();" % state_variable_alias
+        time_attained_instrument = "time_attained_%s = vypr.get_time();" % \
+                                   (state_variable_alias)
+        time_attained_variable = "time_attained_%s" % state_variable_alias
     elif measure_attribute == "time_attained":
         state_variable_alias = "time_attained_%i" % atom_sub_index
-        state_recording_instrument = "record_state_%s = vypr.get_time(); " % state_variable_alias
+        state_recording_instrument = "record_state_%s = vypr.get_time(); " % \
+                                     (state_variable_alias)
         time_attained_instrument = state_recording_instrument
+        time_attained_variable = "record_state_%s" % state_variable_alias
         # the only purpose here is to match what is expected in the monitoring algorithm
         name = "time"
     else:
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = %s; " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = vypr.get_time();" % state_variable_alias
+        time_attained_instrument = "time_attained_%s = vypr.get_time();" % \
+                                   (state_variable_alias)
+        time_attained_variable = "time_attained_%s" % state_variable_alias
 
     # note that observed_value is used three times:
     # 1) to capture the time attained by the state for checking of a property - this is duplicated
@@ -425,10 +580,10 @@ def instrument_point_state(state, name, point, binding_space_indices,
         atom_sub_index=atom_sub_index,
         instrumentation_point_db_id=instrumentation_point_db_ids,
         atom_program_variable=name,
-        time_attained=("time_attained_%s" % state_variable_alias),
+        time_attained=time_attained_variable,
         observed_value=("record_state_%s" % state_variable_alias)
     )
-    state_recording_instrument += "%s((%s))" % (VERIFICATION_INSTRUCTION, instrument_tuple)
+    state_recording_instrument += "%s((%s))" % (VyPR.config.VERIFICATION_INSTRUCTION, instrument_tuple)
 
     time_attained_ast = ast.parse(time_attained_instrument).body[0]
     record_state_ast = ast.parse(state_recording_instrument).body[0]
@@ -447,6 +602,8 @@ def instrument_point_state(state, name, point, binding_space_indices,
         record_state_ast.col_offset = point._instruction.col_offset
         queue_ast.lineno = point._instruction.lineno
         queue_ast.col_offset = point._instruction.col_offset
+        time_attained_ast.lineno = point._instruction.lineno
+        time_attained_ast.col_offset = point._instruction.col_offset
 
         index_in_block = parent_block.index(point._instruction)
 
@@ -476,6 +633,9 @@ def instrument_point_state(state, name, point, binding_space_indices,
                     record_state_ast.col_offset = edge._instruction.col_offset
                     queue_ast.lineno = edge._instruction.lineno
                     queue_ast.col_offset = edge._instruction.col_offset
+                    time_attained_ast.lineno = edge._instruction.lineno
+                    time_attained_ast.col_offset = edge._instruction.col_offset
+
                     index_in_block = parent_block.index(edge._instruction)
                     # insert instruments in reverse order
                     parent_block.insert(index_in_block + 1, queue_ast)
@@ -491,6 +651,8 @@ def instrument_point_state(state, name, point, binding_space_indices,
             record_state_ast.col_offset = incident_edge._instruction.col_offset
             queue_ast.lineno = incident_edge._instruction.lineno
             queue_ast.col_offset = incident_edge._instruction.col_offset
+            time_attained_ast.lineno = incident_edge._instruction.lineno
+            time_attained_ast.col_offset = incident_edge._instruction.col_offset
 
             index_in_block = parent_block.index(incident_edge._instruction)
 
@@ -543,7 +705,7 @@ def instrument_point_transition(atom, point, binding_space_indices, atom_index,
         observed_value="__duration",
         state_dict=state_dict
     )
-    time_difference_statement += "%s((%s))" % (VERIFICATION_INSTRUCTION, instrument_tuple)
+    time_difference_statement += "%s((%s))" % (VyPR.config.VERIFICATION_INSTRUCTION, instrument_tuple)
 
     start_ast = ast.parse(timer_start_statement).body[0]
     end_ast = ast.parse(timer_end_statement).body[0]
@@ -605,12 +767,13 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
                 traceback.print_exc()
                 logger.log(
                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be "
-                    "completed." % VERDICT_SERVER_URL)
+                    "completed." % VyPR.config.VERDICT_SERVER_URL)
                 exit()
             instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 branching_condition_id)
             instrument_ast = ast.parse(instrument_code).body[0]
+            instrument_ast.lineno = vertex_information[1]._parent_body[0].lineno
             index_in_parent = vertex_information[1]._parent_body.index(vertex_information[1])
             vertex_information[1]._parent_body.insert(index_in_parent, instrument_ast)
             logger.log("Branch recording instrument placed")
@@ -632,12 +795,13 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
                 traceback.print_exc()
                 logger.log(
                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be "
-                    "completed." % VERDICT_SERVER_URL)
+                    "completed." % VyPR.config.VERDICT_SERVER_URL)
                 exit()
             instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 branching_condition_id)
             instrument_ast = ast.parse(instrument_code).body[0]
+            instrument_ast.lineno = vertex_information[1].orelse[0].lineno
             vertex_information[1].orelse.insert(0, instrument_ast)
             logger.log("Branch recording instrument placed")
         elif vertex_information[0] in ['post-conditional', 'post-try-catch']:
@@ -678,14 +842,14 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
                 traceback.print_exc()
                 logger.log(
                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be "
-                    "completed." % VERDICT_SERVER_URL)
+                    "completed." % VyPR.config.VERDICT_SERVER_URL)
                 exit()
             instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 branching_condition_id)
             instrument_code_ast = ast.parse(instrument_code).body[0]
-
             index_in_parent = vertex_information[1]._parent_body.index(vertex_information[1]) + 1
+            instrument_code_ast.lineno = vertex_information[1]._parent_body[index_in_parent].lineno
             logger.log(vertex_information[1]._parent_body)
             logger.log(index_in_parent)
             vertex_information[1]._parent_body.insert(index_in_parent, instrument_code_ast)
@@ -706,10 +870,10 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
                 traceback.print_exc()
                 logger.log(
                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be "
-                    "completed." % VERDICT_SERVER_URL)
+                    "completed." % VyPR.config.VERDICT_SERVER_URL)
                 exit()
             instrument_code_inside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 branching_condition_id)
             instrument_inside_loop_ast = ast.parse(instrument_code_inside_loop).body[0]
 
@@ -725,10 +889,10 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
                 traceback.print_exc()
                 logger.log(
                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be "
-                    "completed." % VERDICT_SERVER_URL)
+                    "completed." % VyPR.config.VERDICT_SERVER_URL)
                 exit()
             instrument_code_outside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 branching_condition_id)
             instrument_outside_loop_ast = ast.parse(instrument_code_outside_loop).body[0]
 
@@ -738,9 +902,16 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
             outside_index_in_parent = vertex_information[3]._parent_body.index(
                 vertex_information[3]) + 1
 
+            instrument_inside_loop_ast.lineno = vertex_information[1]._parent_body[0].lineno
+
             vertex_information[1]._parent_body.insert(inside_index_in_parent,
                                                       instrument_inside_loop_ast)
-            vertex_information[3]._parent_body.insert(outside_index_in_parent,
+            if len(vertex_information[3]._parent_body) == outside_index_in_parent:
+                instrument_outside_loop_ast.lineno = vertex_information[3]._parent_body[-1].lineno
+                vertex_information[3]._parent_body.append(instrument_outside_loop_ast)
+            else:
+                instrument_outside_loop_ast.lineno = vertex_information[3]._parent_body[outside_index_in_parent].lineno
+                vertex_information[3]._parent_body.insert(outside_index_in_parent,
                                                       instrument_outside_loop_ast)
             logger.log("Branch recording instrument for conditional placed")
 
@@ -754,7 +925,7 @@ def place_function_begin_instruments(function_def, formula_hash, instrument_func
     vypr_start_time_instrument = "vypr_start_time = vypr.get_time();"
     start_instrument = \
         "%s((\"%s\", \"function\", \"%s\", \"start\", vypr_start_time, \"%s\", __thread_id))" \
-        % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash)
+        % (VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash)
 
     threading_import_ast = ast.parse(thread_id_capture).body[0]
     thread_id_capture_ast = ast.parse(thread_id_capture).body[1]
@@ -762,9 +933,16 @@ def place_function_begin_instruments(function_def, formula_hash, instrument_func
     start_ast = ast.parse(start_instrument).body[0]
 
     threading_import_ast.lineno = function_def.body[0].lineno
+    threading_import_ast.col_offset = function_def.body[0].col_offset
+
     thread_id_capture_ast.lineno = function_def.body[0].lineno
+    thread_id_capture_ast.col_offset = function_def.body[0].col_offset
+
     vypr_start_time_ast.lineno = function_def.body[0].lineno
+    vypr_start_time_ast.col_offset = function_def.body[0].col_offset
+
     start_ast.lineno = function_def.body[0].lineno
+    start_ast.col_offset = function_def.body[0].col_offset
 
     function_def.body.insert(0, start_ast)
     function_def.body.insert(0, thread_id_capture_ast)
@@ -778,10 +956,11 @@ def place_function_end_instruments(function_def, scfg, formula_hash, instrument_
         end_instrument = \
             "%s((\"%s\", \"function\", \"%s\", \"end\", vypr_start_time, \"%s\", __thread_id, " \
             "vypr.get_time()))" \
-            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash)
+            % (VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash)
         end_ast = ast.parse(end_instrument).body[0]
 
         end_ast.lineno = end_vertex._previous_edge._instruction._parent_body[-1].lineno
+        end_ast.col_offset = end_vertex._previous_edge._instruction._parent_body[-1].col_offset
 
         logger.log("Placing end instrument at line %i." % end_ast.lineno)
 
@@ -795,9 +974,12 @@ def place_function_end_instruments(function_def, scfg, formula_hash, instrument_
     if not (type(function_def.body[-1]) is ast.Return):
         end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", vypr_start_time, \"%s\", __thread_id, " \
                          "vypr.get_time()))" \
-                         % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                         % (VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                             formula_hash)
         end_ast = ast.parse(end_instrument).body[0]
+
+        end_ast.lineno = function_def.body[-1].lineno
+        end_ast.col_offset = function_def.body[-1].col_offset
 
         logger.log("Placing end instrument at the end of the function body.")
 
@@ -820,20 +1002,20 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    VERBOSE = args.verbose
-    DRAW_GRAPHS = args.draw_graphs
-    LOGS_TO_STDOUT = args.std_output
+    VyPR.config.VERBOSE = args.verbose
+    VyPR.config.DRAW_GRAPHS = args.draw_graphs
+    VyPR.config.LOGS_TO_STDOUT = args.std_output
 
     inst_configuration = read_configuration("vypr.config")
 
-    VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") \
+    VyPR.config.VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") \
         if inst_configuration.get("verdict_server_url") else "http://localhost:9001/"
-    EXPLANATION = inst_configuration.get("explanation") == "on"
-    BYTECODE_EXTENSION = inst_configuration.get("bytecode_extension") \
+    VyPR.config.EXPLANATION = inst_configuration.get("explanation") == "on"
+    VyPR.config.BYTECODE_EXTENSION = inst_configuration.get("bytecode_extension") \
         if inst_configuration.get("bytecode_extension") else ".pyc"
-    VYPR_MODULE = inst_configuration.get("vypr_module") \
+    VyPR.config.VYPR_MODULE = inst_configuration.get("vypr_module") \
         if inst_configuration.get("vypr_module") else ""
-    VERIFICATION_INSTRUCTION = "vypr.send_event"
+    VyPR.config.VERIFICATION_INSTRUCTION = "vypr.send_event"
     # VERIFICATION_INSTRUCTION = "print"
 
     machine_id = ("%s-" % inst_configuration.get("machine_id")) if inst_configuration.get("machine_id") else ""
@@ -844,7 +1026,7 @@ if __name__ == "__main__":
         exit()
 
     # initialise instrumentation logger
-    logger = InstrumentationLog(LOGS_TO_STDOUT)
+    logger = InstrumentationLog(VyPR.config.LOGS_TO_STDOUT)
     # set up the file handle
     logger.start_logging()
 
@@ -857,7 +1039,7 @@ if __name__ == "__main__":
                     # rename to .py
                     os.rename(f, f.replace(".py.inst", ".py"))
                     # delete bytecode
-                    os.remove(f.replace(".py.inst", BYTECODE_EXTENSION))
+                    os.remove(f.replace(".py.inst", VyPR.config.BYTECODE_EXTENSION))
                     logger.log("Reset file %s to uninstrumented version." % f)
 
     logger.log("Importing PyCFTL queries...")
@@ -886,23 +1068,18 @@ if __name__ == "__main__":
         file_name = module.replace(".", "/") + ".py"
         file_name_without_extension = module.replace(".", "/")
 
+        code_lines = open(file_name, "r").readlines()
+
         # extract asts from the code in the file
-        code = "".join(open(file_name, "r").readlines())
+        code = "".join(code_lines)
         asts = ast.parse(code)
 
         # add import for init_vypr module
-        import_code = "from %s import vypr" % VYPR_MODULE
+        import_code = "from %s import vypr" % VyPR.config.VYPR_MODULE
         import_ast = ast.parse(import_code).body[0]
         import_ast.lineno = asts.body[0].lineno
         import_ast.col_offset = asts.body[0].col_offset
         asts.body.insert(0, import_ast)
-
-        # add vypr datetime import
-        vypr_datetime_import = "from datetime import datetime as vypr_dt"
-        datetime_import_ast = ast.parse(vypr_datetime_import).body[0]
-        datetime_import_ast.lineno = asts.body[0].lineno
-        datetime_import_ast.col_offset = asts.body[0].col_offset
-        asts.body.insert(0, datetime_import_ast)
 
         for function in verified_functions:
 
@@ -957,14 +1134,65 @@ if __name__ == "__main__":
 
             logger.log("SCFG constructed.")
 
-            # write scfg to file
-            write_scfg_to_file(scfg, "%s-%s-%s.gv" %
-                               (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
-                                function.replace(".", "-")))
+            vis_code_lines = map(
+                lambda s: s.rstrip(),
+                code_lines[function_def.lineno - 1:function_def.body[-1].lineno + 1]
+            )
+            vis_code_line_dicts = []
+            for (n, line) in enumerate(vis_code_lines):
+                vis_code_line_dicts.append({
+                    "number": function_def.lineno + n,
+                    "code": line
+                })
 
             # for each property, instrument the function for that property
 
             for (formula_index, formula_structure) in enumerate(verification_conf[module][function]):
+
+
+                """
+                Start of Visualisation
+                """
+                atoms_list = formula_structure._formula_atoms
+                atom_str = str(formula_structure.get_formula_instance())
+                bind_var = formula_structure.bind_variables
+
+                spec = ''
+                vars = ''
+
+                # vars will save a list of variables as "x, y, z" - used later in lambda
+                # spec begins with Forall(...) - each variable generates one of these
+                for (n, var) in enumerate(bind_var.items()):
+                    atom_str = atom_str.replace(str(var[1]), var[0], 1)
+                    if spec:
+                        vars += ", "
+                    spec += '<div class="list-group-item-text code" id="bind-variable-name-%s'\
+                            '">Forall(<span class="variable-def" variable="%i">%s</span>).\ </div>' %\
+                            (var[0], n, var[1])
+                    vars += var[0]
+
+                for var in bind_var.items():
+                    atom_str = atom_str.replace(str(var[1]), var[0])
+
+                # finally, add the condition stored in atom_str to the specification
+                spec += """<div class="list-group-item-text code">Check( </div>
+                            <div class="list-group-item-text code">&nbsp;&nbsp;lambda %s : ( </div>
+                            <div class="list-group-item-text code">&nbsp;&nbsp;&nbsp;&nbsp; %s </div>
+                            <div class="list-group-item-text code">&nbsp;&nbsp;) </div>
+                            <div class="list-group-item-text code">)</div>""" % (vars, atom_str)
+
+                SEND_VIS_EVENT(
+                    "begin_function_processing",
+                    {
+                        "function_name": instrument_function_qualifier,
+                        "code": vis_code_line_dicts,
+                        "scfg": map(lambda v: v.to_vis_json(), scfg.vertices),
+                        "specification": spec
+                    }
+                )
+                """
+                End of visualisation
+                """
 
                 logger.log("Instrumenting for PyCFTL formula %s" % formula_structure)
 
@@ -989,7 +1217,7 @@ if __name__ == "__main__":
 
                 # note that this also means giving an empty list [] will result in path instrumentation
                 # without property instrumentation
-                if EXPLANATION:
+                if VyPR.config.EXPLANATION:
                     logger.log("=" * 100)
                     logger.log("Placing path recording instruments.")
                     place_path_recording_instruments(scfg, instrument_function_qualifier, formula_hash)
@@ -1023,7 +1251,8 @@ if __name__ == "__main__":
                     "function": instrument_function_qualifier,
                     "serialised_formula_structure": serialised_formula_structure,
                     "serialised_bind_variables": serialised_bind_variables,
-                    "serialised_atom_list": list(enumerate(serialised_atom_list))
+                    "serialised_atom_list": list(enumerate(serialised_atom_list)),
+                    "formula_index": formula_index
                 }
 
                 # send instrumentation data to the verdict database
@@ -1034,13 +1263,14 @@ if __name__ == "__main__":
                     response = str(post_to_verdict_server("store_property/", data=json.dumps(initial_property_dict)))
                     response = json.loads(response)
                     atom_index_to_db_index = response["atom_index_to_db_index"]
+                    print(atom_index_to_db_index)
                     function_id = response["function_id"]
                 except:
                     logger.log("Unforeseen exception when sending property to verdict server:")
                     logger.log(traceback.format_exc())
                     logger.log(
                         "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed."
-                        % VERDICT_SERVER_URL)
+                        % VyPR.config.VERDICT_SERVER_URL)
                     exit()
 
                 logger.log("Processing set of static bindings:")
@@ -1064,7 +1294,8 @@ if __name__ == "__main__":
                     binding_dictionary = {
                         "binding_space_index": m,
                         "function": function_id,
-                        "binding_statement_lines": line_numbers
+                        "binding_statement_lines": line_numbers,
+                        "property_hash": formula_hash
                     }
                     serialised_binding_dictionary = json.dumps(binding_dictionary)
                     try:
@@ -1075,7 +1306,7 @@ if __name__ == "__main__":
                         logger.log(traceback.format_exc())
                         logger.log(
                             "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed."
-                            % VERDICT_SERVER_URL)
+                            % VyPR.config.VERDICT_SERVER_URL)
                         exit()
 
                     static_qd_to_point_map[m] = {}
@@ -1119,6 +1350,26 @@ if __name__ == "__main__":
                             static_qd_to_point_map[m][atom_index][0] = lhs_instrumentation_points
                             static_qd_to_point_map[m][atom_index][1] = rhs_instrumentation_points
 
+                            """
+                            Visualisation code
+                            """
+
+                            SEND_VIS_EVENT(
+                                "find_inst_set",
+                                {
+                                    "binding" : m,
+                                    "atom_index" : atom_index,
+                                    "points" : {
+                                        "lhs" : VIS_SCFG_SET_TO_IDS(lhs_instrumentation_points),
+                                        "rhs" : VIS_SCFG_SET_TO_IDS(rhs_instrumentation_points)
+                                    }
+                                }
+                            )
+
+                            """
+                            End visualisation code
+                            """
+
                         else:
 
                             # just one composition sequence, so one set of instrumentation points
@@ -1134,8 +1385,47 @@ if __name__ == "__main__":
                             # for simple atoms, there is no lhs and rhs so we just use 0
                             static_qd_to_point_map[m][atom_index][0] = instrumentation_points
 
+                            """
+                            Visualisation code
+                            """
+
+                            SEND_VIS_EVENT(
+                                "find_inst_set",
+                                {
+                                    "binding": m,
+                                    "atom_index": atom_index,
+                                    "points": {
+                                        "lhs": VIS_SCFG_SET_TO_IDS(instrumentation_points)
+                                    }
+                                }
+                            )
+
+                            """
+                            End visualisation code
+                            """
+
                 logger.log("Finished computing instrumentation points.  Result is:")
                 logger.log(static_qd_to_point_map)
+
+                inst = []
+                for binding_index in static_qd_to_point_map:
+                    for atom_index in static_qd_to_point_map[binding_index]:
+                        for subatom_index in static_qd_to_point_map[binding_index][atom_index]:
+                            inst += static_qd_to_point_map[binding_index][atom_index][subatom_index]
+
+                # write scfg to file
+                write_scfg_to_file(scfg, "%s-%s-%s.gv" %
+                                   (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
+                                   function.replace(".", "-")),
+                                   inst)
+
+                # derive context-free grammar
+                grammar = scfg.derive_grammar()
+                with open("%s-grammar" % file_name_without_extension.replace(".", ""), "w") as h:
+                   h.write(pprint.pformat(grammar))
+
+                print("finished computing instrumentation points:")
+                print(static_qd_to_point_map)
 
                 # now, perform the instrumentation
 
@@ -1152,8 +1442,8 @@ if __name__ == "__main__":
                         point = element[bind_variable_index]
 
                         instrument = "%s((\"%s\", \"trigger\", \"%s\", %i, %i))" % \
-                                     (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, m,
-                                      bind_variable_index)
+                                     (VyPR.config.VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                                      m, bind_variable_index)
 
                         instrument_ast = ast.parse(instrument).body[0]
                         if type(point) is CFGVertex:
@@ -1173,7 +1463,10 @@ if __name__ == "__main__":
 
                         index_in_block = instruction._parent_body.index(instruction)
 
-                        instrument_ast.lineno = instruction._parent_body[0].lineno
+                        # instrument_ast.lineno = instruction._parent_body[index_in_block].lineno
+                        # instrument_ast.col_offset = instruction._parent_body[index_in_block].col_offset
+                        instrument_ast.lineno = lineno
+                        instrument_ast.col_offset = col_offset
 
                         # insert triggers before the things that will be measured
                         instruction._parent_body.insert(index_in_block, instrument_ast)
@@ -1395,6 +1688,8 @@ if __name__ == "__main__":
                                     instrument_point_state(atom._rhs, None, point, binding_space_indices,
                                                            atom_index, atom_sub_index, instrumentation_point_db_ids,
                                                            measure_attribute="time_attained")
+
+                print("placing start and end markers for function %s" % instrument_function_qualifier)
 
                 # finally, insert an instrument at the beginning to tell the monitoring thread that a new call of the
                 # function has started and insert one at the end to signal a return
