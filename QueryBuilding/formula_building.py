@@ -255,6 +255,8 @@ class StaticState(object):
         return NextStaticTransition(self, function, record=record)
 
     def __repr__(self):
+        return self._bind_variable_name
+        """
         if self._required_binding:
             return "%s = StaticState(changes=%s, uses=%s)" % \
                    (self._bind_variable_name, self._name_changed,
@@ -262,6 +264,7 @@ class StaticState(object):
         else:
             return "%s = StaticState(changes=%s)" % \
                    (self._bind_variable_name, self._name_changed)
+        """
 
     def __eq__(self, other):
         return (type(other) is StaticState and
@@ -479,6 +482,8 @@ class StaticTransition(object):
         return DestinationStaticState(self)
 
     def __repr__(self):
+        return self._bind_variable_name
+        """
         if self._required_binding:
             if self._record:
                 return "%s = StaticTransition(operates_on=%s, uses=%s, record=%s)" % \
@@ -495,6 +500,7 @@ class StaticTransition(object):
             else:
                 return "%s = StaticTransition(operates_on=%s)" % \
                        (self._bind_variable_name, self._operates_on)
+        """
 
     def __eq__(self, other):
         return (type(other) is StaticTransition and
