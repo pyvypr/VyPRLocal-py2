@@ -7,6 +7,32 @@ Author: Joshua Dawes - CERN, University of Manchester - joshua.dawes@cern.ch
 """
 
 import datetime
+import requests
+import VyPR.config
+
+
+def SEND_VIS_EVENT(action, data):
+    """
+    Send a new visualisation event to the server.
+    :param action:
+    :param data:
+    :return: True or False based on success of the http request.
+    """
+    try:
+        print("Sending visualisation event...")
+        requests.post(
+            os.path.join(VyPR.config.VERDICT_SERVER_URL, "event_stream/add/monitoring/"),
+            data = json.dumps({
+                "action" : action,
+                "data" : json.dumps(data),
+                "time_added" : datetime.datetime.now().isoformat()
+            })
+        )
+        print("Visualisation event sent!")
+        return True
+    except:
+        traceback.print_exc()
+        return False
 
 
 class ArithmeticMultiply(object):
@@ -88,7 +114,7 @@ class StateValueInInterval(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "(%s)(%s) in %s" % (self._state, self._name, self._interval)
+        return "(%s)(%s)._in(%s)" % (self._state, self._name, self._interval)
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueInInterval:
@@ -120,7 +146,7 @@ class StateValueInOpenInterval(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "(%s)(%s) in %s" % (self._state, self._name, self._interval)
+        return "(%s)(%s)._in(%s)" % (self._state, self._name, self._interval)
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueInInterval:
@@ -147,7 +173,7 @@ class StateValueEqualTo(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "(%s)(%s) = %s" % (self._state, self._name, self._value)
+        return "(%s)(%s).equals(%s)" % (self._state, self._name, self._value)
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueEqualTo:
@@ -172,7 +198,7 @@ class StateValueTypeEqualTo(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "type((%s)(%s)) = %s" % (self._state, self._name, self._value)
+        return "(%s)(%s).type().equals(%s)" % (self._state, self._name, self._value)
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueTypeEqualTo:
@@ -198,7 +224,7 @@ class StateValueEqualToMixed(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "(%s)(%s) = (%s)(%s)" % (self._lhs, self._lhs_name, self._rhs, self._rhs_name)
+        return "(%s)(%s).equals((%s)(%s))" % (self._lhs, self._lhs_name, self._rhs, self._rhs_name)
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueEqualToMixed:
@@ -238,7 +264,7 @@ class StateValueLengthInInterval(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "(%s(%s)).length() in %s" % (self._state, self._name, self._interval)
+        return "(%s(%s)).length()._in(%s)" % (self._state, self._name, self._interval)
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueLengthInInterval:
@@ -265,7 +291,7 @@ class TransitionDurationInInterval(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "d(%s) in %s" % (self._transition, self._interval)
+        return "(%s).duration()._in(%s)" % (self._transition, self._interval)
 
     def __eq__(self, other_atom):
         if type(other_atom) is TransitionDurationInInterval:
@@ -289,7 +315,7 @@ class TransitionDurationLessThanTransitionDurationMixed(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "d(%s) < d(%s)" % (self._lhs, self._rhs)
+        return "(%s).duration() < (%s).duration()" % (self._lhs, self._rhs)
 
     def __eq__(self, other_atom):
         if type(other_atom) is TransitionDurationLessThanTransitionDurationMixed:
@@ -322,7 +348,7 @@ class TransitionDurationLessThanStateValueMixed(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "d(%s) < (%s)(%s)" % (self._lhs, self._rhs, self._rhs_name)
+        return "(%s).duration() < (%s)(%s)" % (self._lhs, self._rhs, self._rhs_name)
 
     def __eq__(self, other_atom):
         if type(other_atom) is TransitionDurationLessThanStateValueMixed:
@@ -360,7 +386,7 @@ class TransitionDurationLessThanStateValueLengthMixed(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "d(%s) < (%s)(%s).length()" % (self._lhs, self._rhs, self._rhs_name)
+        return "(%s).duration() < (%s)(%s).length()" % (self._lhs, self._rhs, self._rhs_name)
 
     def __eq__(self, other_atom):
         if type(other_atom) is TransitionDurationLessThanStateValueLengthMixed:
@@ -398,7 +424,7 @@ class TimeBetweenInInterval(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "timeBetween(%s, %s) in %s" % (self._lhs, self._rhs, self._interval)
+        return "timeBetween(%s, %s)_in(%s)" % (self._lhs, self._rhs, self._interval)
 
     def __eq__(self, other_atom):
         if type(other_atom) is TimeBetweenInInterval:
@@ -433,7 +459,7 @@ class TimeBetweenInOpenInterval(Atom):
         self.verdict = None
 
     def __repr__(self):
-        return "timeBetween(%s, %s) in %s" % (self._lhs, self._rhs, str(self._interval))
+        return "timeBetween(%s, %s)._in(%s)" % (self._lhs, self._rhs, str(self._interval))
 
     def __eq__(self, other_atom):
         if type(other_atom) is TimeBetweenInOpenInterval:
@@ -1071,6 +1097,71 @@ class Checker(object):
                 if level == 0:
                     self._formula.verdict = False
                 return False
+
+    def to_vis_json(self):
+        """
+        Recursive through the formula tree to give a nested dictionary structure
+        :return: dictionary representation of formula tree
+        """
+        atoms = []
+        dictionary = self.subtree_to_dictionary(self._formula, atoms)
+        dictionary["verdict"] = None
+        return dictionary, atoms
+
+    def subtree_to_dictionary(self, formula, atoms=[]):
+        """
+        Given a formula, recurse through it to find the alphabet over which it is written.
+        Note: the final alphabet includes positive and negative instances of every symbol
+        in the alphabet.  For example, a and b is written over the alphabet {a, not a, b, not b}.
+        """
+        if formula_is_derived_from_atom(formula):
+            # base case - the formula is an atom
+            # just return the atom, and not its negative, for now
+            if type(formula) in [StateValueEqualToMixed,
+                                  TransitionDurationLessThanTransitionDurationMixed,
+                                  TransitionDurationLessThanStateValueMixed,
+                                  TransitionDurationLessThanStateValueLengthMixed,
+                                  TimeBetweenInInterval,
+                                  TimeBetweenInOpenInterval]:
+                lhs_trimmed = str(formula._lhs).split("=")[0].rstrip()
+                rhs_trimmed = str(formula._rhs).split("=")[0].rstrip()
+                atoms.append({
+                    "type": "mixed-atom",
+                    0: lhs_trimmed,
+                    1 : rhs_trimmed
+                })
+                if type(formula) in [TimeBetweenInInterval, TimeBetweenInOpenInterval]:
+                    atom_value = "timeBetween"
+                else:
+                    atom_value = str(formula)
+                return {
+                    "type" : "mixed-atom",
+                    "atom_index" : len(atoms)-1,
+                    "value" : atom_value,
+                    "lhs" : {
+                        "value" : lhs_trimmed
+                    },
+                    "rhs" : {
+                        "value" : rhs_trimmed
+                    }
+                }
+            else:
+                atoms.append({
+                    "type": "atom",
+                    "formula": str(formula)
+                })
+                if hasattr(formula, "_state"):
+                    return {"type" : "atom", "atom_index" : len(atoms)-1, "value" : str(formula)}
+                else:
+                    return {"type" : "atom", "atom_index": len(atoms)-1, "value": str(formula)}
+        elif type(formula) is LogicalOr:
+            tmp = map(lambda ops: self.subtree_to_dictionary(ops), formula.operands)
+            return {"type" : "bool_op", "operator" : "or", "operands" : tmp}
+        elif type(formula) is LogicalAnd:
+            tmp = map(lambda ops: self.subtree_to_dictionary(ops), formula.operands)
+            return {"type" : "bool_op", "operator" : "and", "operands" : tmp}
+        elif type(formula) is LogicalNot:
+            return {"type": "bool_op", "operator": "not", "operands" : self.subtree_to_dictionary(formula.operand)}
 
 
 def new_monitor(formula, optimised=False):
