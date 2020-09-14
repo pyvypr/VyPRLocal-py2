@@ -14,11 +14,176 @@ import requests
 from VyPR.SCFG.construction import CFGEdge, CFGVertex
 from VyPR.QueryBuilding import *
 from VyPR.monitor_synthesis import formula_tree
+from VyPR.monitor_synthesis.formula_tree import *
 from VyPR.verdict_reports import VerdictReport
+import VyPR.config
 
-VERDICT_SERVER_URL = None
-VYPR_OUTPUT_VERBOSE = True
-PROJECT_ROOT = None
+def VIS_FORMULA_TO_HTML(formula_structure, atoms_list):
+    """
+    Construct formula HTML for visualisation
+    """
+    """
+    Remember old representation functions that we can reassign.
+    """
+    StaticState__repr__ = StaticState.__repr__
+    StaticTransition__repr__ = StaticTransition.__repr__
+    TransitionDurationInInterval__repr__ = TransitionDurationInInterval.__repr__
+
+    """
+    Set HTML representation functions.
+    """
+
+    StaticState.__repr__ = \
+        lambda object: """<span class="tooltip">Bind each event satisfying changes(%s) to the variable %s.</span>
+        %s = changes(%s)""" % \
+                       (object._name_changed, object._bind_variable_name, object._bind_variable_name,
+                        object._name_changed)
+
+    StaticTransition.__repr__ = \
+        lambda object: """<span class="tooltip">Bind each event satisfying calls(%s) to the variable %s.</span>
+        %s = calls(%s)""" % \
+                       (
+                       object._operates_on, object._bind_variable_name, object._bind_variable_name, object._operates_on)
+
+    # StateValueInInterval.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s(%s)</span>._in(%s)
+    #         </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._interval)
+    #
+    # StateValueInOpenInterval.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s(%s)</span>._in(%s)
+    #         </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._interval)
+    #
+    # StateValueEqualTo.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s(%s)</span>.equals(%s)
+    #         </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._value)
+    #
+    # StateValueTypeEqualTo.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s(%s)</span>.type().equals(%s)
+    #         </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._value)
+    #
+    # StateValueEqualToMixed.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s(%s)</span>.equals(
+    #         <span class="subatom" subatom-index="1">%s(%s)</span>)
+    #         </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._lhs_name, Atom._rhs, Atom._rhs_name)
+    #
+    # StateValueLengthInInterval.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s(%s)</span>.length()._in(%s)
+    #         </span>""" % (atoms_list.index(Atom), Atom._state, Atom._name, Atom._interval)
+
+    TransitionDurationInInterval.__repr__ = \
+        lambda Atom: """<span class="atom" atom-index="%i">
+            <div class="tooltip">Constraint the duration of %s.</div>
+            <span class="subatom" subatom-index="0">%s</span>.duration()._in(%s)
+            </span>""" % (atoms_list.index(Atom), Atom._transition, Atom._transition, Atom._interval)
+
+    # TransitionDurationLessThanTransitionDurationMixed.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s</span>.duration() <
+    #         <span class="subatom" subatom-index="1">%s</span>.duration()
+    #         </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._rhs)
+    #
+    # TransitionDurationLessThanStateValueMixed.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s</span>.duration() <
+    #         <span class="subatom" subatom-index="1">%s(%s) </span>
+    #         </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._rhs, Atom._rhs_name)
+    #
+    # TransitionDurationLessThanStateValueLengthMixed.__repr__ = \
+    #     lambda Atom: """<span class="atom" atom-index="%i">
+    #         <span class="subatom" subatom-index="0">%s</span>.duration() <
+    #         <span class="subatom" subatom-index="1">%s(%s)</span>.length()
+    #         </span>""" % (atoms_list.index(Atom), Atom._lhs, Atom._rhs, Atom._rhs_name)
+    #
+    TimeBetweenInInterval.__repr__ = \
+        lambda Atom: """<span class="atom" atom-index="%i">timeBetween(
+            <div class="tooltip">Constrain the time taken to reach %s from %s.</div>
+            <span class="subatom" subatom-index="0">%s</span>,
+            <span class="subatom" subatom-index="1">%s</span>)._in(%s)
+            </span> """ % (atoms_list.index(Atom), Atom._rhs, Atom._lhs, Atom._lhs, Atom._rhs, Atom._interval)
+
+    TimeBetweenInOpenInterval.__repr__ = \
+        lambda Atom: """<span class="atom" atom-index="%i">timeBetween(
+            <div class="tooltip">Constrain the time taken to reach %s from %s.</div>
+            <span class="subatom" subatom-index="0">%s</span>,
+            <span class="subatom" subatom-index="1">%s</span>)._in(%s)
+            </span> """ % (atoms_list.index(Atom), Atom._rhs, Atom._lhs, Atom._lhs, Atom._rhs, str(Atom._interval))
+    #
+    # LogicalAnd.__repr__ = \
+    #     lambda object: ('land(%s' % (object.operands[0])) + (', %s' % str for str in object.operands[1:]) + ')'
+    #
+    # LogicalOr.__repr__ = \
+    #     lambda object: ('lor(%s' % (object.operands[0])) + (', %s' % str for str in object.operands[1:]) + ')'
+    #
+    # LogicalNot.__repr__ = \
+    #     lambda object: 'lnot(%s)' % object.operand
+
+    """
+    Derive formula HTML
+    """
+    atom_str = str(formula_structure.get_formula_instance())
+    bind_var = formula_structure.bind_variables
+
+    spec = ''
+    vars = ''
+
+    # vars will save a list of variables as "x, y, z" - used later in lambda
+    # spec begins with Forall(...) - each variable generates one of these
+    for (n, var) in enumerate(bind_var.items()):
+        atom_str = atom_str.replace(str(var[1]), var[0], 1)
+        if spec:
+            vars += ", "
+        spec += '<div class="list-group-item-text code" id="bind-variable-name-%s'\
+                '">Forall(<span class="variable-def" variable="%i">%s</span>).\ </div>' % (var[0], n, var[1])
+        vars += var[0]
+
+    for var in bind_var.items():
+        atom_str = atom_str.replace(str(var[1]), var[0])
+
+    # finally, add the condition stored in atom_str to the specification
+    spec += """<div class="list-group-item-text code">Check( </div>
+                <div class="list-group-item-text code">&nbsp;&nbsp;lambda %s : ( </div>
+                <div class="list-group-item-text code">&nbsp;&nbsp;&nbsp;&nbsp; %s </div>
+                <div class="list-group-item-text code">&nbsp;&nbsp;) </div>
+                <div class="list-group-item-text code">)</div>""" % (vars, atom_str)
+
+    """
+    Reset representation functions.
+    """
+    StaticState.__repr__ = StaticState__repr__
+    StaticTransition.__repr__ = StaticTransition__repr__
+    TransitionDurationInInterval.__repr__ = TransitionDurationInInterval__repr__
+
+    return bind_var.keys(), spec
+
+
+def SEND_VIS_EVENT(action, data):
+    """
+    Send a new visualisation event to the server.
+    :param action:
+    :param data:
+    :return: True or False based on success of the http request.
+    """
+    try:
+        print("Sending visualisation event of type '%s' with data '%s'..." % (action, data))
+        requests.post(
+            os.path.join(VyPR.config.VERDICT_SERVER_URL, "event_stream/add/monitoring/"),
+            data = json.dumps({
+                "action" : action,
+                "data" : json.dumps(data),
+                "time_added" : datetime.datetime.now().isoformat()
+            })
+        )
+        print("Visualisation event sent!")
+        return True
+    except:
+        traceback.print_exc()
+        return False
 
 
 class MonitoringLog(object):
@@ -68,7 +233,7 @@ vypr_logger = None
 
 def vypr_output(string):
     global vypr_logger
-    if VYPR_OUTPUT_VERBOSE:
+    if VyPR.config.VYPR_OUTPUT_VERBOSE:
         vypr_logger.log(string)
 
 
@@ -77,7 +242,6 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
     """
     Send verdict data for a given function call (function name + time of call).
     """
-    global VERDICT_SERVER_URL
     verdicts = verdict_report.get_final_verdict_report()
     vypr_output("Sending verdicts to server...")
 
@@ -90,11 +254,10 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
         "time_of_call": time_of_call.isoformat(),
         "end_time_of_call": end_time_of_call.isoformat(),
         "function_name": function_name,
-        "property_hash": property_hash,
         "program_path": program_path
     }
     insertion_result = json.loads(requests.post(
-        os.path.join(VERDICT_SERVER_URL, "insert_function_call_data/"),
+        os.path.join(VyPR.config.VERDICT_SERVER_URL, "insert_function_call_data/"),
         data=json.dumps(call_data)
     ).text)
 
@@ -119,19 +282,20 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
                     verdict[5],
                     verdict[6]
                 ],
-                "line_numbers": json.dumps(binding_to_line_numbers[bind_space_index]),
+                "line_numbers": json.dumps(binding_to_line_numbers[bind_space_index])
             }
             verdict_dict_list.append(verdict_dict)
 
     request_body_dict = {
         "function_call_id": insertion_result["function_call_id"],
         "function_id": insertion_result["function_id"],
-        "verdicts": verdict_dict_list
+        "verdicts": verdict_dict_list,
+        "property_hash": property_hash
     }
 
     # send request
     try:
-        requests.post(os.path.join(VERDICT_SERVER_URL, "register_verdicts/"),
+        requests.post(os.path.join(VyPR.config.VERDICT_SERVER_URL, "register_verdicts/"),
                       data=json.dumps(request_body_dict, default=to_timestamp))
     except Exception as e:
         vypr_output(
@@ -212,6 +376,14 @@ def consumption_thread_function(verification_obj):
                 vypr_output("Function '%s' started at time %s has ended at %s."
                             % (function_name, str(maps.latest_time_of_call), str(top_pair[-1])))
 
+                SEND_VIS_EVENT(
+                    "function-end",
+                    {
+                        "function": function_name,
+                        "property_hash": property_hash
+                    }
+                )
+
                 # before resetting the qd -> monitor map, go through it to find monitors
                 # that reached a verdict, and register those in the verdict report
 
@@ -282,6 +454,36 @@ def consumption_thread_function(verification_obj):
             elif scope_event == "start":
                 vypr_output("Function '%s' has started." % function_name)
 
+                binding_to_line_numbers = {}
+
+                for (bind_space_index, binding) in enumerate(bindings):
+
+                    binding_to_line_numbers[bind_space_index] = []
+
+                    # for each element of the binding, print the appropriate representation
+                    for bind_var in binding:
+
+                        if type(bind_var) is CFGVertex:
+                            if bind_var._name_changed == ["loop"]:
+                                binding_to_line_numbers[bind_space_index].append(bind_var._structure_obj.lineno)
+                            else:
+                                binding_to_line_numbers[bind_space_index].append(
+                                    bind_var._previous_edge._instruction.lineno)
+                        elif type(bind_var) is CFGEdge:
+                            binding_to_line_numbers[bind_space_index].append(bind_var._instruction.lineno)
+
+                vars, spec = VIS_FORMULA_TO_HTML(formula_structure, atoms)
+                SEND_VIS_EVENT(
+                    "function-start",
+                    {
+                        "function": function_name,
+                        "property_hash": property_hash,
+                        "specification": spec,
+                        "variables" : vars,
+                        "bindings" : binding_to_line_numbers
+                    }
+                )
+
                 # remember when the function call started
                 maps.latest_time_of_call = top_pair[3]
 
@@ -306,6 +508,19 @@ def consumption_thread_function(verification_obj):
                     static_qd_to_monitors[static_qd_index].append(new_monitor)
                 except:
                     static_qd_to_monitors[static_qd_index] = [new_monitor]
+
+                monitor_json, atom_string_list = new_monitor.to_vis_json()
+                SEND_VIS_EVENT(
+                    "trigger-new-monitor",
+                    {
+                        "function": function_name,
+                        "property_hash": property_hash,
+                        "binding_index": static_qd_index,
+                        "variable_index": bind_variable_index,
+                        "formula_tree" : monitor_json,
+                        "atoms" : atom_string_list
+                    }
+                )
             else:
                 vypr_output("Processing existing monitors")
                 # we look at the monitors' timestamps, and decide whether to generate a new monitor
@@ -316,12 +531,14 @@ def consumption_thread_function(verification_obj):
                     # check if the monitor's timestamp sequence includes a timestamp for this bind variable
                     vypr_output(
                         "  Processing monitor with timestamp sequence %s" % str(monitor._monitor_instantiation_time))
+
                     if len(monitor._monitor_instantiation_time) == bind_variable_index + 1:
                         if monitor._monitor_instantiation_time[:bind_variable_index] in subsequences_processed:
                             # the same subsequence might have been copied and extended multiple times
                             # we only care about one
                             continue
                         else:
+                            vypr_output("Processing %s" % str(monitor._monitor_instantiation_time[:bind_variable_index]))
                             subsequences_processed.append(monitor._monitor_instantiation_time[:bind_variable_index])
                             # construct new monitor
                             vypr_output("    Instantiating new monitor with modified timestamp sequence")
@@ -339,7 +556,8 @@ def consumption_thread_function(verification_obj):
 
                             # iterate through the observations stored by the previous monitor
                             # for bind variables before the current one and use them to update the new monitor
-                            for atom in monitor._state._state:
+                            for atom_index in monitor._state._state:
+                                atom = atoms[atom_index]
                                 if not (type(atom) is formula_tree.LogicalNot):
                                     if (formula_structure._bind_variables.index(
                                             get_base_variable(atom)) < bind_variable_index
@@ -349,7 +567,7 @@ def consumption_thread_function(verification_obj):
                                         elif monitor._state._state[atom] == False:
                                             new_monitor.check_optimised(formula_tree.lnot(atom))
 
-                                        atom_index = atoms.index(atom)
+                                        #atom_index = atoms.index(atom)
 
                                         for sub_index in monitor.atom_to_observation[atom_index].keys():
                                             new_monitor.atom_to_observation[atom_index][sub_index] = \
@@ -362,6 +580,20 @@ def consumption_thread_function(verification_obj):
                                         for sub_index in monitor.atom_to_state_dict[atom_index].keys():
                                             new_monitor.atom_to_state_dict[atom_index][sub_index] = \
                                                 monitor.atom_to_state_dict[atom_index][sub_index]
+
+                            monitor_json, atom_string_list = new_monitor.to_vis_json()
+                            SEND_VIS_EVENT(
+                                "trigger-new-monitor",
+                                {
+                                    "function": function_name,
+                                    "property_hash": property_hash,
+                                    "binding_index": static_qd_index,
+                                    "observed_values" : new_monitor.atom_to_observation,
+                                    "variable_index": bind_variable_index,
+                                    "formula_tree": monitor_json,
+                                    "atoms" : atom_string_list
+                                }
+                            )
 
                     elif len(monitor._monitor_instantiation_time) == bind_variable_index:
                         vypr_output("    Updating existing monitor timestamp sequence")
@@ -414,14 +646,53 @@ def consumption_thread_function(verification_obj):
 
                 instrumentation_atom = atoms[atom_index]
 
+                SEND_VIS_EVENT(
+                    "receive-measurement",
+                    {
+                        "function": function_name,
+                        "property_hash": property_hash,
+                        "binding_index": static_qd_index,
+                        "atom_index" : atom_index,
+                        "atom_string" : str(atoms[atom_index]),
+                        "atom_sub_index" : atom_sub_index,
+                        "observation_start_time" : observation_time.isoformat(),
+                        "observation_end_time": observation_end_time.isoformat(),
+                        "observed_value" : json.dumps(
+                            observed_value,
+                            default=lambda obj : str(obj) if type(obj) is datetime.datetime else obj
+                        ),
+                        "path" : {
+                            "instrumentation_point_db_id" : instrumentation_point_db_id,
+                            "path_condition_sequence" : program_path
+                        }
+                    }
+                )
+
                 # update all monitors associated with static_qd_index
                 if static_qd_to_monitors.get(static_qd_index):
                     for (n, monitor) in enumerate(static_qd_to_monitors[static_qd_index]):
+
+                        # check the initial verdict so we know if a new verdict has been reached for visualisation
+                        initial_verdict = monitor._formula.verdict
+
                         # checking for previous observation of the atom is done by the monitor's internal logic
                         monitor.process_atom_and_value(instrumentation_atom, observation_time, observation_end_time,
                                                        observed_value, atom_index, atom_sub_index,
                                                        inst_point_id=instrumentation_point_db_id,
                                                        program_path=len(program_path), state_dict=state_dict)
+
+                        if initial_verdict != monitor._formula.verdict:
+                            # if a verdict has been set for the entire monitor
+                            SEND_VIS_EVENT(
+                                "collapse-monitor",
+                                {
+                                    "function": function_name,
+                                    "property_hash": property_hash,
+                                    "binding_index": static_qd_index,
+                                    "formula_tree_index" : n,
+                                    "verdict" : monitor._formula.verdict
+                                }
+                            )
 
         # set the task as done
         verification_obj.consumption_queue.task_done()
@@ -444,12 +715,12 @@ class PropertyMapGroup(object):
         self._property_hash = property_hash
 
         # read in binding spaces
-        with open(os.path.join(PROJECT_ROOT, "binding_spaces/module-%s-function-%s-property-%s.dump") % \
+        with open(os.path.join(VyPR.config.PROJECT_ROOT, "binding_spaces/module-%s-function-%s-property-%s.dump") % \
                   (module_name.replace(".", "-"), function_name.replace(":", "-"), property_hash), "rb") as h:
             binding_space_dump = h.read()
 
         # read in index hash map
-        with open(os.path.join(PROJECT_ROOT, "index_hash/module-%s-function-%s.dump") % \
+        with open(os.path.join(VyPR.config.PROJECT_ROOT, "index_hash/module-%s-function-%s.dump") % \
                   (module_name.replace(".", "-"), function_name.replace(":", "-")), "rb") as h:
             index_to_hash_dump = h.read()
 
@@ -510,11 +781,10 @@ class Verification(object):
 
         # read configuration file
         inst_configuration = read_configuration("vypr.config")
-        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT
-        VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") if inst_configuration.get(
+        VyPR.config.VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") if inst_configuration.get(
             "verdict_server_url") else "http://localhost:9001/"
-        VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True
-        PROJECT_ROOT = inst_configuration.get("project_root") if inst_configuration.get("project_root") else ""
+        VyPR.config.VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True
+        VyPR.config.PROJECT_ROOT = inst_configuration.get("project_root") if inst_configuration.get("project_root") else ""
 
         self.machine_id = ("%s-" % inst_configuration.get("machine_id")) if inst_configuration.get("machine_id") else ""
 
@@ -543,7 +813,7 @@ class Verification(object):
 
         # try to connect to the verdict server before we set anything up
         try:
-            attempt = requests.get(VERDICT_SERVER_URL)
+            attempt = requests.get(VyPR.config.VERDICT_SERVER_URL)
             self.initialisation_failure = False
         except Exception:
             vypr_output("Couldn't connect to the verdict server at '%s'.  Initialisation failed." % VERDICT_SERVER_URL)
@@ -557,20 +827,12 @@ class Verification(object):
         # we count the transaction start time as the time when VyPR starts up
         self.transaction_start_time = datetime.datetime.utcnow()
 
-        # read configuration file
-        inst_configuration = read_configuration("vypr.config")
-        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT
-        VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") if inst_configuration.get(
-            "verdict_server_url") else "http://localhost:9001/"
-        VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True
-        PROJECT_ROOT = inst_configuration.get("project_root") if inst_configuration.get("project_root") else ""
-
         # set up the maps that the monitoring algorithm that the consumption thread runs
 
         # we need the list of functions that we have instrumentation data from, so read the instrumentation maps
         # directory
         dump_files = filter(lambda filename: ".dump" in filename,
-                            os.listdir(os.path.join(PROJECT_ROOT, "binding_spaces")))
+                            os.listdir(os.path.join(VyPR.config.PROJECT_ROOT, "binding_spaces")))
         functions_and_properties = map(lambda function_dump_file: function_dump_file.replace(".dump", ""), dump_files)
         tokens = map(lambda string: string.split("-"), functions_and_properties)
 
